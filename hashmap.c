@@ -287,6 +287,12 @@ void hashmap_free(struct hashmap *map) {
     hmfree(map);
 }
 
+// hashmap_oom returns true if the last hashmap_set() call failed due to the 
+// system being out of memory.
+bool hashmap_oom(struct hashmap *map) {
+    return map->oom;
+}
+
 // hashmap_scan iterates over all items in the hash map
 // Param `iter` can return false to stop iteration early.
 // Returns false if the iteration has been stopped early.
@@ -476,9 +482,6 @@ uint64_t hashmap_murmur(const void *data, size_t len,
 // $ cc -DHASHMAP_TEST hashmap.c && ./a.out              # run tests
 // $ cc -DHASHMAP_TEST -O3 hashmap.c && BENCH=1 ./a.out  # run benchmarks
 //==============================================================================
-// #ifndef HASHMAP_TEST
-// #define HASHMAP_TEST
-// #endif
 #ifdef HASHMAP_TEST
 
 static size_t deepcount(struct hashmap *map) {
@@ -502,10 +505,15 @@ static size_t deepcount(struct hashmap *map) {
 #include <stdio.h>
 #include "hashmap.h"
 
+static bool rand_alloc_fail = false;
+static int rand_alloc_fail_odds = 3; // 1 in 3 chance malloc will fail.
 static uintptr_t total_allocs = 0;
 static uintptr_t total_mem = 0;
 
 static void *xmalloc(size_t size) {
+    if (rand_alloc_fail && rand()%rand_alloc_fail_odds == 0) {
+        return NULL;
+    }
     void *mem = malloc(sizeof(uintptr_t)+size);
     assert(mem);
     *(uintptr_t*)mem = size;
@@ -553,17 +561,22 @@ static void all() {
     printf("seed=%d, count=%d, item_size=%zu\n", seed, N, sizeof(int));
     srand(seed);
 
+    rand_alloc_fail = true;
+
     // test sip and murmur hashes
     assert(hashmap_sip("hello", 5, 1, 2) == 2957200328589801622);
     assert(hashmap_murmur("hello", 5, 1, 2) == 1682575153221130884);
 
-    int *vals = xmalloc(N * sizeof(int));
+    int *vals;
+    while (!(vals = xmalloc(N * sizeof(int)))) {}
     for (int i = 0; i < N; i++) {
         vals[i] = i;
     }
 
-    struct hashmap *map = hashmap_new(sizeof(int), 0, seed, seed, 
-                                      hash_int, compare_ints);
+    struct hashmap *map;
+
+    while (!(map = hashmap_new(sizeof(int), 0, seed, seed, 
+                               hash_int, compare_ints))) {}
     shuffle(vals, N, sizeof(int));
     for (int i = 0; i < N; i++) {
         // // printf("== %d ==\n", vals[i]);
@@ -573,13 +586,28 @@ static void all() {
         int *v;
         assert(!hashmap_get(map, &vals[i]));
         assert(!hashmap_delete(map, &vals[i]));
-        assert(!hashmap_set(map, &vals[i]));
+        while (true) {
+            assert(!hashmap_set(map, &vals[i]));
+            if (!hashmap_oom(map)) {
+                break;
+            }
+        }
+        
         for (int j = 0; j < i; j++) {
             v = hashmap_get(map, &vals[j]);
             assert(v && *v == vals[j]);
         }
-        v = hashmap_set(map, &vals[i]);
-        assert(v && *v == vals[i]);
+        while (true) {
+            v = hashmap_set(map, &vals[i]);
+            if (!v) {
+                assert(hashmap_oom(map));
+                continue;
+            } else {
+                assert(!hashmap_oom(map));
+                assert(v && *v == vals[i]);
+                break;
+            }
+        }
         v = hashmap_get(map, &vals[i]);
         assert(v && *v == vals[i]);
         v = hashmap_delete(map, &vals[i]);
@@ -592,7 +620,8 @@ static void all() {
         assert(map->count == deepcount(map));
     }
 
-    int *vals2 = xmalloc(N * sizeof(int));
+    int *vals2;
+    while (!(vals2 = xmalloc(N * sizeof(int)))) {}
     memset(vals2, 0, N * sizeof(int));
     assert(hashmap_scan(map, iter_ints, &vals2));
     for (int i = 0; i < N; i++) {
