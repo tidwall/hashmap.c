@@ -42,7 +42,8 @@ struct hashmap {
     uint64_t seed0;
     uint64_t seed1;
     uint64_t (*hash)(const void *item, uint64_t seed0, uint64_t seed1);
-    int (*compare)(const void *a, const void *b);
+    int (*compare)(const void *a, const void *b, void *udata);
+    void *udata;
     size_t bucketsz;
     size_t nbuckets;
     size_t count;
@@ -84,7 +85,9 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
                             uint64_t seed0, uint64_t seed1,
                             uint64_t (*hash)(const void *item, 
                                              uint64_t seed0, uint64_t seed1),
-                            int (*compare)(const void *a, const void *b))
+                            int (*compare)(const void *a, const void *b, 
+                                           void *udata),
+                            void *udata)
 {
     int ncap = 16;
     if (cap < ncap) {
@@ -110,6 +113,7 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
     map->seed1 = seed1;
     map->hash = hash;
     map->compare = compare;
+    map->udata = udata;
     map->spare = ((char*)map)+sizeof(struct hashmap);
     map->cap = cap;
     map->nbuckets = cap;
@@ -127,7 +131,8 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
 
 static bool resize(struct hashmap *map, size_t new_cap) {
     struct hashmap *map2 = hashmap_new(map->elsize, new_cap, map->seed1, 
-                                       map->seed1, map->hash, map->compare);
+                                       map->seed1, map->hash, map->compare,
+                                       map->udata);
     if (!map2) {
         return false;
     }
@@ -194,7 +199,8 @@ void *hashmap_set(struct hashmap *map, void *item) {
 			return NULL;
 		}
         if (entry->hash == bucket->hash && 
-            map->compare(bucket_item(entry), bucket_item(bucket)) == 0)
+            map->compare(bucket_item(entry), bucket_item(bucket), 
+                         map->udata) == 0)
         {
             memcpy(map->spare, bucket_item(bucket), map->elsize);
             memcpy(bucket_item(bucket), bucket_item(entry), map->elsize);
@@ -224,7 +230,7 @@ void *hashmap_get(struct hashmap *map, void *key) {
 			return NULL;
 		}
 		if (bucket->hash == hash && 
-            map->compare(key, bucket_item(bucket)) == 0)
+            map->compare(key, bucket_item(bucket), map->udata) == 0)
         {
             return bucket_item(bucket);
 		}
@@ -247,7 +253,7 @@ void *hashmap_delete(struct hashmap *map, void *key) {
 			return NULL;
 		}
 		if (bucket->hash == hash && 
-            map->compare(key, bucket_item(bucket)) == 0)
+            map->compare(key, bucket_item(bucket), map->udata) == 0)
         {
             memcpy(map->spare, bucket_item(bucket), map->elsize);
             bucket->dib = 0;
@@ -551,6 +557,10 @@ static int compare_ints(const void *a, const void *b) {
     return *(int*)a - *(int*)b;
 }
 
+static int compare_ints_udata(const void *a, const void *b, void *udata) {
+    return *(int*)a - *(int*)b;
+}
+
 static uint64_t hash_int(const void *item, uint64_t seed0, uint64_t seed1) {
     return hashmap_murmur(item, sizeof(int), seed0, seed1);
 }
@@ -576,7 +586,7 @@ static void all() {
     struct hashmap *map;
 
     while (!(map = hashmap_new(sizeof(int), 0, seed, seed, 
-                               hash_int, compare_ints))) {}
+                               hash_int, compare_ints_udata, NULL))) {}
     shuffle(vals, N, sizeof(int));
     for (int i = 0; i < N; i++) {
         // // printf("== %d ==\n", vals[i]);
@@ -643,11 +653,6 @@ static void all() {
             assert(v && *v == vals[j]);
         }
     }
-    assert(map->cap == map->nbuckets);
-
-
-
-
     hashmap_free(map);
 
     xfree(vals);
@@ -708,7 +713,8 @@ static void benchmarks() {
     struct hashmap *map;
     shuffle(vals, N, sizeof(int));
 
-    map = hashmap_new(sizeof(int), 0, seed, seed, hash_int, compare_ints);
+    map = hashmap_new(sizeof(int), 0, seed, seed, hash_int, compare_ints_udata, 
+                      NULL);
     bench("set", N, {
         int *v = hashmap_set(map, &vals[i]);
         assert(!v);
@@ -725,7 +731,8 @@ static void benchmarks() {
     })
     hashmap_free(map);
 
-    map = hashmap_new(sizeof(int), N, seed, seed, hash_int, compare_ints);
+    map = hashmap_new(sizeof(int), N, seed, seed, hash_int, compare_ints_udata, 
+                      NULL);
     bench("set (cap)", N, {
         int *v = hashmap_set(map, &vals[i]);
         assert(!v);

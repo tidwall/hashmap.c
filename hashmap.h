@@ -15,7 +15,9 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
                             uint64_t seed0, uint64_t seed1,
                             uint64_t (*hash)(const void *item, 
                                              uint64_t seed0, uint64_t seed1),
-                            int (*compare)(const void *a, const void *b));
+                            int (*compare)(const void *a, const void *b, 
+                                           void *udata),
+                            void *udata);
 void hashmap_free(struct hashmap *map);
 size_t hashmap_count(struct hashmap *map);
 bool hashmap_oom(struct hashmap *map);

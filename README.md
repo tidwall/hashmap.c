@@ -23,7 +23,7 @@ struct user {
     int age;
 };
 
-int user_compare(const void *a, const void *b) {
+int user_compare(const void *a, const void *b, void *udata) {
     const struct user *ua = a;
     const struct user *ub = b;
     return strcmp(ua->name, ub->name);
@@ -45,7 +45,7 @@ int main() {
     // argument is the initial capacity. The third and fourth arguments are 
     // optional seeds that are passed to the following hash function.
     struct hashmap *map = hashmap_new(sizeof(struct user), 0, 0, 0, 
-                                     user_hash, user_compare);
+                                     user_hash, user_compare, NULL);
 
     // Here we'll load some users into the hash map. Each set operation
     // performs a copy of the data that is pointed to in the second argument.
