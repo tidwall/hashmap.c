@@ -75,9 +75,9 @@ static uint64_t get_hash(struct hashmap *map, void *key) {
 // following `hash` function. These can be any value you wish but it's often 
 // best to use randomly generated values.
 // Param `hash` is a function that generates a hash value for an item. It's
-// important that you provice good hash function, otherwise will perform poorly
-// or be vulnerable to Denial-of-service attacks. This implementation comes
-// with two helper functions `hashmap_sip()` and `hashmap_murmur()`
+// important that you provide a good hash function, otherwise it will perform
+// poorly or be vulnerable to Denial-of-service attacks. This implementation
+// comes with two helper functions `hashmap_sip()` and `hashmap_murmur()`.
 // Param `compare` is a function that compares items in the tree. See the 
 // qsort stdlib function for an example of how this function works.
 // The hashmap must be freed with hashmap_free(). 
