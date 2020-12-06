@@ -19,6 +19,7 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
                                            void *udata),
                             void *udata);
 void hashmap_free(struct hashmap *map);
+void hashmap_clear(struct hashmap *map, bool update_cap);
 size_t hashmap_count(struct hashmap *map);
 bool hashmap_oom(struct hashmap *map);
 void *hashmap_get(struct hashmap *map, void *item);
