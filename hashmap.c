@@ -52,6 +52,7 @@ struct hashmap {
     size_t shrinkat;
     void *buckets;
     void *spare;
+    void *edata;
 };
 
 static struct bucket *bucket_at(struct hashmap *map, size_t index) {
@@ -102,7 +103,9 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
     while (bucketsz & (sizeof(uintptr_t)-1)) {
         bucketsz++;
     }
-    struct hashmap *map = hmmalloc(sizeof(struct hashmap)+bucketsz);
+    // hashmap + spare + edata
+    size_t size = sizeof(struct hashmap)+bucketsz+elsize;
+    struct hashmap *map = hmmalloc(size);
     if (!map) {
         return NULL;
     }
@@ -115,6 +118,7 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
     map->compare = compare;
     map->udata = udata;
     map->spare = ((char*)map)+sizeof(struct hashmap);
+    map->edata = map->spare+bucketsz;
     map->cap = cap;
     map->nbuckets = cap;
     map->mask = map->nbuckets-1;
@@ -207,8 +211,8 @@ void *hashmap_set(struct hashmap *map, void *item) {
         }
     }
 
-    char edata[map->bucketsz]; // VLA
-    struct bucket *entry = (void*)edata;
+    
+    struct bucket *entry = map->edata;
     entry->hash = get_hash(map, item);
     entry->dib = 1;
     memcpy(bucket_item(entry), item, map->elsize);
