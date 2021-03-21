@@ -118,7 +118,7 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
     map->compare = compare;
     map->udata = udata;
     map->spare = ((char*)map)+sizeof(struct hashmap);
-    map->edata = map->spare+bucketsz;
+    map->edata = (char*)map->spare+bucketsz;
     map->cap = cap;
     map->nbuckets = cap;
     map->mask = map->nbuckets-1;
