@@ -104,7 +104,7 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
         bucketsz++;
     }
     // hashmap + spare + edata
-    size_t size = sizeof(struct hashmap)+bucketsz+elsize;
+    size_t size = sizeof(struct hashmap)+bucketsz*2;
     struct hashmap *map = hmmalloc(size);
     if (!map) {
         return NULL;
