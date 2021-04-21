@@ -10,10 +10,8 @@
 #include "hashmap.h"
 
 static void *(*_malloc)(size_t) = NULL;
+static void *(*_realloc)(void *, size_t) = NULL;
 static void (*_free)(void *) = NULL;
-
-#define hmmalloc (_malloc?_malloc:malloc)
-#define hmfree (_free?_free:free)
 
 // hashmap_set_allocator allows for configuring a custom allocator for
 // all hashmap library operations. This function, if needed, should be called
@@ -36,6 +34,9 @@ struct bucket {
 
 // hashmap is an open addressed hash map using robinhood hashing.
 struct hashmap {
+    void *(*malloc)(size_t);
+    void *(*realloc)(void *, size_t);
+    void (*free)(void *);
     bool oom;
     size_t elsize;
     size_t cap;
@@ -67,6 +68,70 @@ static uint64_t get_hash(struct hashmap *map, void *key) {
     return map->hash(key, map->seed0, map->seed1) << 16 >> 16;
 }
 
+// hashmap_new_with_allocator returns a new hash map using a custom allocator.
+// See hashmap_new for more information information
+struct hashmap *hashmap_new_with_allocator(
+                            void *(*_malloc)(size_t), 
+                            void *(*_realloc)(void*, size_t), 
+                            void (*_free)(void*),
+                            size_t elsize, size_t cap, 
+                            uint64_t seed0, uint64_t seed1,
+                            uint64_t (*hash)(const void *item, 
+                                             uint64_t seed0, uint64_t seed1),
+                            int (*compare)(const void *a, const void *b, 
+                                           void *udata),
+                            void *udata)
+{
+    _malloc = _malloc ? _malloc : malloc;
+    _realloc = _realloc ? _realloc : realloc;
+    _free = _free ? _free : free;
+    int ncap = 16;
+    if (cap < ncap) {
+        cap = ncap;
+    } else {
+        while (ncap < cap) {
+            ncap *= 2;
+        }
+        cap = ncap;
+    }
+    size_t bucketsz = sizeof(struct bucket) + elsize;
+    while (bucketsz & (sizeof(uintptr_t)-1)) {
+        bucketsz++;
+    }
+    // hashmap + spare + edata
+    size_t size = sizeof(struct hashmap)+bucketsz*2;
+    struct hashmap *map = _malloc(size);
+    if (!map) {
+        return NULL;
+    }
+    memset(map, 0, sizeof(struct hashmap));
+    map->elsize = elsize;
+    map->bucketsz = bucketsz;
+    map->seed0 = seed0;
+    map->seed1 = seed1;
+    map->hash = hash;
+    map->compare = compare;
+    map->udata = udata;
+    map->spare = ((char*)map)+sizeof(struct hashmap);
+    map->edata = (char*)map->spare+bucketsz;
+    map->cap = cap;
+    map->nbuckets = cap;
+    map->mask = map->nbuckets-1;
+    map->buckets = _malloc(map->bucketsz*map->nbuckets);
+    if (!map->buckets) {
+        _free(map);
+        return NULL;
+    }
+    memset(map->buckets, 0, map->bucketsz*map->nbuckets);
+    map->growat = map->nbuckets*0.75;
+    map->shrinkat = map->nbuckets*0.10;
+    map->malloc = _malloc;
+    map->realloc = _realloc;
+    map->free = _free;
+    return map;  
+}
+
+
 // hashmap_new returns a new hash map. 
 // Param `elsize` is the size of each element in the tree. Every element that
 // is inserted, deleted, or retrieved will be this size.
@@ -90,47 +155,12 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
                                            void *udata),
                             void *udata)
 {
-    int ncap = 16;
-    if (cap < ncap) {
-        cap = ncap;
-    } else {
-        while (ncap < cap) {
-            ncap *= 2;
-        }
-        cap = ncap;
-    }
-    size_t bucketsz = sizeof(struct bucket) + elsize;
-    while (bucketsz & (sizeof(uintptr_t)-1)) {
-        bucketsz++;
-    }
-    // hashmap + spare + edata
-    size_t size = sizeof(struct hashmap)+bucketsz*2;
-    struct hashmap *map = hmmalloc(size);
-    if (!map) {
-        return NULL;
-    }
-    memset(map, 0, sizeof(struct hashmap));
-    map->elsize = elsize;
-    map->bucketsz = bucketsz;
-    map->seed0 = seed0;
-    map->seed1 = seed1;
-    map->hash = hash;
-    map->compare = compare;
-    map->udata = udata;
-    map->spare = ((char*)map)+sizeof(struct hashmap);
-    map->edata = (char*)map->spare+bucketsz;
-    map->cap = cap;
-    map->nbuckets = cap;
-    map->mask = map->nbuckets-1;
-    map->buckets = hmmalloc(map->bucketsz*map->nbuckets);
-    if (!map->buckets) {
-        hmfree(map);
-        return NULL;
-    }
-    memset(map->buckets, 0, map->bucketsz*map->nbuckets);
-    map->growat = map->nbuckets*0.75;
-    map->shrinkat = map->nbuckets*0.10;
-    return map;    
+    return hashmap_new_with_allocator(
+        (_malloc?_malloc:malloc),
+        (_realloc?_realloc:realloc),
+        (_free?_free:free),
+        elsize, cap, seed0, seed1, hash, compare, udata
+    );
 }
 
 // hashmap_clear quickly clears the map. 
@@ -142,9 +172,9 @@ void hashmap_clear(struct hashmap *map, bool update_cap) {
     if (update_cap) {
         map->cap = map->nbuckets;
     } else if (map->nbuckets != map->cap) {
-        void *new_buckets = hmmalloc(map->bucketsz*map->cap);
+        void *new_buckets = map->malloc(map->bucketsz*map->cap);
         if (new_buckets) {
-            hmfree(map->buckets);
+            map->free(map->buckets);
             map->buckets = new_buckets;
         }
         map->nbuckets = map->cap;
@@ -185,13 +215,13 @@ static bool resize(struct hashmap *map, size_t new_cap) {
             entry->dib += 1;
         }
 	}
-    hmfree(map->buckets);
+    map->free(map->buckets);
     map->buckets = map2->buckets;
     map->nbuckets = map2->nbuckets;
     map->mask = map2->mask;
     map->growat = map2->growat;
     map->shrinkat = map2->shrinkat;
-    hmfree(map2);
+    map->free(map2);
     return true;
 }
 
@@ -329,8 +359,8 @@ size_t hashmap_count(struct hashmap *map) {
 // hashmap_free frees the hash map
 void hashmap_free(struct hashmap *map) {
     if (!map) return;
-    hmfree(map->buckets);
-    hmfree(map);
+    map->free(map->buckets);
+    map->free(map);
 }
 
 // hashmap_oom returns true if the last hashmap_set() call failed due to the 
