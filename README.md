@@ -98,6 +98,7 @@ hashmap_count    # returns the number of items in the hash map
 hashmap_set      # insert or replace an existing item and return the previous
 hashmap_get      # get an existing item
 hashmap_delete   # delete and return an item
+hashmap_clear    # clear the hash map
 ```
 
 ### Iteration
