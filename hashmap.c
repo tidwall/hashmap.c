@@ -164,11 +164,19 @@ struct hashmap *hashmap_new(size_t elsize, size_t cap,
 }
 
 // hashmap_clear quickly clears the map. 
+// If not null, freeit is called with every item before clearing, in case items
+// reference data that must be freed.
 // When the update_cap is provided, the map's capacity will be updated to match
 // the currently number of allocated buckets. This is an optimization to ensure
 // that this operation does not perform any allocations.
-void hashmap_clear(struct hashmap *map, bool update_cap) {
+void hashmap_clear(struct hashmap *map, void (*freeit)(void *item), bool update_cap) {
     map->count = 0;
+    if (freeit) {
+        for (size_t i = 0; i < map->nbuckets; i++) {
+            struct bucket *bucket = bucket_at(map, i);
+            if (bucket->dib) freeit(bucket_item(bucket));
+        }
+    }
     if (update_cap) {
         map->cap = map->nbuckets;
     } else if (map->nbuckets != map->cap) {
@@ -631,8 +639,20 @@ static int compare_ints_udata(const void *a, const void *b, void *udata) {
     return *(int*)a - *(int*)b;
 }
 
+static int compare_strs(const void *a, const void *b, void *udata) {
+    return strcmp(*(char**)a, *(char**)b);
+}
+
 static uint64_t hash_int(const void *item, uint64_t seed0, uint64_t seed1) {
     return hashmap_murmur(item, sizeof(int), seed0, seed1);
+}
+
+static uint64_t hash_str(const void *item, uint64_t seed0, uint64_t seed1) {
+    return hashmap_murmur(*(char**)item, strlen(*(char**)item), seed0, seed1);
+}
+
+static void free_str(void *item) {
+    xfree(*(char**)item);
 }
 
 static void all() {
@@ -735,7 +755,7 @@ static void all() {
 
     assert(map->count != 0);
     size_t prev_cap = map->cap;
-    hashmap_clear(map, true);
+    hashmap_clear(map, NULL, true);
     assert(prev_cap < map->cap);
     assert(map->count == 0);
 
@@ -750,12 +770,27 @@ static void all() {
     }
 
     prev_cap = map->cap;
-    hashmap_clear(map, false);
+    hashmap_clear(map, NULL, false);
     assert(prev_cap == map->cap);
 
     hashmap_free(map);
 
     xfree(vals);
+
+
+    while (!(map = hashmap_new(sizeof(char*), 0, seed, seed,
+                               hash_str, compare_strs, NULL)));
+
+    for (int i = 0; i < N; i++) {
+        char *str;
+        while (!(str = xmalloc(16)));
+        sprintf(str, "s%i", i);
+        while(!hashmap_set(map, &str));
+    }
+
+    hashmap_clear(map, free_str, false);
+    assert(hashmap_count(map) == 0);
+    hashmap_free(map);
 
     if (total_allocs != 0) {
         fprintf(stderr, "total_allocs: expected 0, got %lu\n", total_allocs);
