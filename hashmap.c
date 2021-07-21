@@ -64,7 +64,7 @@ static void *bucket_item(struct bucket *entry) {
     return ((char*)entry)+sizeof(struct bucket);
 }
 
-static uint64_t get_hash(struct hashmap *map, void *key) {
+static uint64_t get_hash(struct hashmap *map, const void *key) {
     return map->hash(key, map->seed0, map->seed1) << 16 >> 16;
 }
 
@@ -275,7 +275,7 @@ void *hashmap_set(struct hashmap *map, void *item) {
 
 // hashmap_get returns the item based on the provided key. If the item is not
 // found then NULL is returned.
-void *hashmap_get(struct hashmap *map, void *key) {
+void *hashmap_get(struct hashmap *map, const void *key) {
     if (!key) {
         panic("key is null");
     }
