@@ -45,7 +45,7 @@ int main() {
     // argument is the initial capacity. The third and fourth arguments are 
     // optional seeds that are passed to the following hash function.
     struct hashmap *map = hashmap_new(sizeof(struct user), 0, 0, 0, 
-                                     user_hash, user_compare, NULL);
+                                     user_hash, user_compare, NULL, NULL);
 
     // Here we'll load some users into the hash map. Each set operation
     // performs a copy of the data that is pointed to in the second argument.
@@ -98,6 +98,7 @@ hashmap_count    # returns the number of items in the hash map
 hashmap_set      # insert or replace an existing item and return the previous
 hashmap_get      # get an existing item
 hashmap_delete   # delete and return an item
+hashmap_clear    # clear the hash map
 ```
 
 ### Iteration

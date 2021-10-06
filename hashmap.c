@@ -44,6 +44,7 @@ struct hashmap {
     uint64_t seed1;
     uint64_t (*hash)(const void *item, uint64_t seed0, uint64_t seed1);
     int (*compare)(const void *a, const void *b, void *udata);
+    void (*elfree)(void *item);
     void *udata;
     size_t bucketsz;
     size_t nbuckets;
@@ -80,6 +81,7 @@ struct hashmap *hashmap_new_with_allocator(
                                              uint64_t seed0, uint64_t seed1),
                             int (*compare)(const void *a, const void *b, 
                                            void *udata),
+                            void (*elfree)(void *item),
                             void *udata)
 {
     _malloc = _malloc ? _malloc : malloc;
@@ -111,6 +113,7 @@ struct hashmap *hashmap_new_with_allocator(
     map->seed1 = seed1;
     map->hash = hash;
     map->compare = compare;
+    map->elfree = elfree;
     map->udata = udata;
     map->spare = ((char*)map)+sizeof(struct hashmap);
     map->edata = (char*)map->spare+bucketsz;
@@ -147,28 +150,44 @@ struct hashmap *hashmap_new_with_allocator(
 // Param `compare` is a function that compares items in the tree. See the 
 // qsort stdlib function for an example of how this function works.
 // The hashmap must be freed with hashmap_free(). 
+// Param `elfree` is a function that frees a specific item. This should be NULL
+// unless you're storing some kind of reference data in the hash.
 struct hashmap *hashmap_new(size_t elsize, size_t cap, 
                             uint64_t seed0, uint64_t seed1,
                             uint64_t (*hash)(const void *item, 
                                              uint64_t seed0, uint64_t seed1),
                             int (*compare)(const void *a, const void *b, 
                                            void *udata),
+                            void (*elfree)(void *item),
                             void *udata)
 {
     return hashmap_new_with_allocator(
         (_malloc?_malloc:malloc),
         (_realloc?_realloc:realloc),
         (_free?_free:free),
-        elsize, cap, seed0, seed1, hash, compare, udata
+        elsize, cap, seed0, seed1, hash, compare, elfree, udata
     );
 }
 
+static void free_elements(struct hashmap *map) {
+    if (map->elfree) {
+        for (size_t i = 0; i < map->nbuckets; i++) {
+            struct bucket *bucket = bucket_at(map, i);
+            if (bucket->dib) map->elfree(bucket_item(bucket));
+        }
+    }
+}
+
+
 // hashmap_clear quickly clears the map. 
+// Every item is called with the element-freeing function given in hashmap_new,
+// if present, to free any data referenced in the elements of the hashmap.
 // When the update_cap is provided, the map's capacity will be updated to match
 // the currently number of allocated buckets. This is an optimization to ensure
 // that this operation does not perform any allocations.
 void hashmap_clear(struct hashmap *map, bool update_cap) {
     map->count = 0;
+    free_elements(map);
     if (update_cap) {
         map->cap = map->nbuckets;
     } else if (map->nbuckets != map->cap) {
@@ -189,7 +208,7 @@ void hashmap_clear(struct hashmap *map, bool update_cap) {
 static bool resize(struct hashmap *map, size_t new_cap) {
     struct hashmap *map2 = hashmap_new(map->elsize, new_cap, map->seed1, 
                                        map->seed1, map->hash, map->compare,
-                                       map->udata);
+                                       map->elfree, map->udata);
     if (!map2) {
         return false;
     }
@@ -357,8 +376,11 @@ size_t hashmap_count(struct hashmap *map) {
 }
 
 // hashmap_free frees the hash map
+// Every item is called with the element-freeing function given in hashmap_new,
+// if present, to free any data referenced in the elements of the hashmap.
 void hashmap_free(struct hashmap *map) {
     if (!map) return;
+    free_elements(map);
     map->free(map->buckets);
     map->free(map);
 }
@@ -631,8 +653,20 @@ static int compare_ints_udata(const void *a, const void *b, void *udata) {
     return *(int*)a - *(int*)b;
 }
 
+static int compare_strs(const void *a, const void *b, void *udata) {
+    return strcmp(*(char**)a, *(char**)b);
+}
+
 static uint64_t hash_int(const void *item, uint64_t seed0, uint64_t seed1) {
     return hashmap_murmur(item, sizeof(int), seed0, seed1);
+}
+
+static uint64_t hash_str(const void *item, uint64_t seed0, uint64_t seed1) {
+    return hashmap_murmur(*(char**)item, strlen(*(char**)item), seed0, seed1);
+}
+
+static void free_str(void *item) {
+    xfree(*(char**)item);
 }
 
 static void all() {
@@ -656,7 +690,7 @@ static void all() {
     struct hashmap *map;
 
     while (!(map = hashmap_new(sizeof(int), 0, seed, seed, 
-                               hash_int, compare_ints_udata, NULL))) {}
+                               hash_int, compare_ints_udata, NULL, NULL))) {}
     shuffle(vals, N, sizeof(int));
     for (int i = 0; i < N; i++) {
         // // printf("== %d ==\n", vals[i]);
@@ -757,6 +791,29 @@ static void all() {
 
     xfree(vals);
 
+
+    while (!(map = hashmap_new(sizeof(char*), 0, seed, seed,
+                               hash_str, compare_strs, free_str, NULL)));
+
+    for (int i = 0; i < N; i++) {
+        char *str;
+        while (!(str = xmalloc(16)));
+        sprintf(str, "s%i", i);
+        while(!hashmap_set(map, &str));
+    }
+
+    hashmap_clear(map, false);
+    assert(hashmap_count(map) == 0);
+
+    for (int i = 0; i < N; i++) {
+        char *str;
+        while (!(str = xmalloc(16)));
+        sprintf(str, "s%i", i);
+        while(!hashmap_set(map, &str));
+    }
+
+    hashmap_free(map);
+
     if (total_allocs != 0) {
         fprintf(stderr, "total_allocs: expected 0, got %lu\n", total_allocs);
         exit(1);
@@ -814,7 +871,7 @@ static void benchmarks() {
     shuffle(vals, N, sizeof(int));
 
     map = hashmap_new(sizeof(int), 0, seed, seed, hash_int, compare_ints_udata, 
-                      NULL);
+                      NULL, NULL);
     bench("set", N, {
         int *v = hashmap_set(map, &vals[i]);
         assert(!v);
@@ -832,7 +889,7 @@ static void benchmarks() {
     hashmap_free(map);
 
     map = hashmap_new(sizeof(int), N, seed, seed, hash_int, compare_ints_udata, 
-                      NULL);
+                      NULL, NULL);
     bench("set (cap)", N, {
         int *v = hashmap_set(map, &vals[i]);
         assert(!v);
