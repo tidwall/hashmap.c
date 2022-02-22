@@ -408,6 +408,38 @@ bool hashmap_scan(struct hashmap *map,
     return true;
 }
 
+
+// hashmap_iter iterates one key at a time yielding a reference to an
+// entry at each iteration. Useful to write simple loops and avoid writing
+// dedicated callbacks and udata structures, as in hashmap_scan.
+//
+// map is a hash map handle. i is a pointer to a size_t cursor that
+// should be initialized to 0 at the beginning of the loop. item is a void
+// pointer pointer that is populated with the retrieved item. Note that this
+// is NOT a copy of the item stored in the hash map and can be directly
+// modified.
+//
+// This function has not been tested for thread safety.
+//
+// The function returns true if an item was retrieved; false if the end of the
+// iteration has been reached.
+bool hashmap_iter(struct hashmap *map, size_t *i, void **item)
+{
+    struct bucket *bucket;
+
+    do {
+        if (*i >= map->nbuckets) return false;
+
+        bucket = bucket_at(map, *i);
+        *i++;
+    } while (!bucket->dib);
+
+    *item = bucket_item(bucket);
+
+    return true;
+}
+
+
 //-----------------------------------------------------------------------------
 // SipHash reference C implementation
 //
@@ -738,6 +770,13 @@ static void all() {
     while (!(vals2 = xmalloc(N * sizeof(int)))) {}
     memset(vals2, 0, N * sizeof(int));
     assert(hashmap_scan(map, iter_ints, &vals2));
+
+    // Test hashmap_iter. This does the same as hashmap_scan above.
+    size_t iter = 0;
+    void *iter_val;
+    while (hashmap_iter (map, &iter, &iter_val)) {
+        assert (iter_ints(iter_val, &vals2));
+    }
     for (int i = 0; i < N; i++) {
         assert(vals2[i] == 1);
     }
