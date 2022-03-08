@@ -431,7 +431,7 @@ bool hashmap_iter(struct hashmap *map, size_t *i, void **item)
         if (*i >= map->nbuckets) return false;
 
         bucket = bucket_at(map, *i);
-        *i++;
+        (*i)++;
     } while (!bucket->dib);
 
     *item = bucket_item(bucket);
