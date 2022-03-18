@@ -248,7 +248,7 @@ static bool resize(struct hashmap *map, size_t new_cap) {
 // replaced then it is returned otherwise NULL is returned. This operation
 // may allocate memory. If the system is unable to allocate additional
 // memory then NULL is returned and hashmap_oom() returns true.
-void *hashmap_set(struct hashmap *map, void *item) {
+void *hashmap_set(struct hashmap *map, const void *item) {
     if (!item) {
         panic("item is null");
     }
