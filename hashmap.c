@@ -248,7 +248,7 @@ static bool resize(struct hashmap *map, size_t new_cap) {
 // replaced then it is returned otherwise NULL is returned. This operation
 // may allocate memory. If the system is unable to allocate additional
 // memory then NULL is returned and hashmap_oom() returns true.
-void *hashmap_set(struct hashmap *map, void *item) {
+void *hashmap_set(struct hashmap *map, const void *item) {
     if (!item) {
         panic("item is null");
     }
@@ -418,6 +418,10 @@ bool hashmap_scan(struct hashmap *map,
 // pointer pointer that is populated with the retrieved item. Note that this
 // is NOT a copy of the item stored in the hash map and can be directly
 // modified.
+//
+// Note that if hashmap_delete() is called on the hashmap being iterated,
+// the buckets are rearranged and the iterator must be reset to 0, otherwise
+// unexpected results may be returned after deletion.
 //
 // This function has not been tested for thread safety.
 //
