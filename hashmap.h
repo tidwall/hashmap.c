@@ -41,6 +41,7 @@ void *hashmap_delete(struct hashmap *map, void *item);
 void *hashmap_probe(struct hashmap *map, uint64_t position);
 bool hashmap_scan(struct hashmap *map,
                   bool (*iter)(const void *item, void *udata), void *udata);
+bool hashmap_iter(struct hashmap *map, size_t *i, void **item);
 
 uint64_t hashmap_sip(const void *data, size_t len, 
                      uint64_t seed0, uint64_t seed1);
