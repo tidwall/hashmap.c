@@ -71,6 +71,7 @@ int main() {
     printf("\n-- iterate over all users (hashmap_scan) --\n");
     hashmap_scan(map, user_iter, NULL);
 
+    printf("\n-- iterate over all users (hashmap_iter) --\n");
     size_t iter = 0;
     void *item;
     while (hashmap_iter(map, &iter, &item)) {
@@ -92,6 +93,12 @@ int main() {
 // Dale (age=44)
 // Roger (age=68)
 // Jane (age=47)
+//
+// -- iterate over all users (hashmap_iter) --
+// Dale (age=44)
+// Roger (age=68)
+// Jane (age=47)
+
 ```
 
 ## Functions
