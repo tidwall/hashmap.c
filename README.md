@@ -42,27 +42,36 @@ uint64_t user_hash(const void *item, uint64_t seed0, uint64_t seed1) {
 
 int main() {
     // create a new hash map where each item is a `struct user`. The second
-    // argument is the initial capacity. The third and fourth arguments are 
+    // argument is the initial capacity. The third and fourth arguments are
     // optional seeds that are passed to the following hash function.
-    struct hashmap *map = hashmap_new(sizeof(struct user), 0, 0, 0, 
+    struct hashmap *map = hashmap_new(sizeof(struct user), 0, 0, 0,
                                      user_hash, user_compare, NULL, NULL);
 
     // Here we'll load some users into the hash map. Each set operation
     // performs a copy of the data that is pointed to in the second argument.
-    hashmap_set(map, &(struct user){ .name="Dale", .age=44 });
-    hashmap_set(map, &(struct user){ .name="Roger", .age=68 });
-    hashmap_set(map, &(struct user){ .name="Jane", .age=47 });
+    const struct user dale = { .name="Dale", .age=44 };
+    const struct user roger = { .name="Roger", .age=68 };
+    const struct user jane = { .name="Jane", .age=47 };
+    const struct user russ = { .name="Russell", .age=40 };
 
-    struct user *user; 
-    
+    hashmap_set(map, &dale);
+    hashmap_set(map, &roger);
+    hashmap_set(map, &jane);
+    hashmap_set_by_hash(map, &russ, &russ);
+
+    struct user *user;
+
     printf("\n-- get some users --\n");
-    user = hashmap_get(map, &(struct user){ .name="Jane" });
+    user = hashmap_get(map, &jane);
     printf("%s age=%d\n", user->name, user->age);
 
-    user = hashmap_get(map, &(struct user){ .name="Roger" });
+    user = hashmap_get(map, &roger);
     printf("%s age=%d\n", user->name, user->age);
 
-    user = hashmap_get(map, &(struct user){ .name="Dale" });
+    user = hashmap_get(map, &dale);
+    printf("%s age=%d\n", user->name, user->age);
+
+    user = hashmap_get_by_hash(map, &russ);
     printf("%s age=%d\n", user->name, user->age);
 
     user = hashmap_get(map, &(struct user){ .name="Tom" });
@@ -83,22 +92,25 @@ int main() {
 }
 
 // output:
+//
 // -- get some users --
 // Jane age=47
 // Roger age=68
 // Dale age=44
+// Russell age=40
 // not exists
-// 
+//
 // -- iterate over all users (hashmap_scan) --
 // Dale (age=44)
 // Roger (age=68)
 // Jane (age=47)
+// Russell (age=40)
 //
 // -- iterate over all users (hashmap_iter) --
 // Dale (age=44)
 // Roger (age=68)
 // Jane (age=47)
-
+// Russell (age=40)
 ```
 
 ## Functions
