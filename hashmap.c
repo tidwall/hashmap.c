@@ -530,7 +530,7 @@ static uint64_t SIP64(const uint8_t *in, const size_t inlen,
 //
 // Murmur3_86_128
 //-----------------------------------------------------------------------------
-static void MM86128(const void *key, const int len, uint32_t seed, void *out) {
+static uint64_t MM86128(const void *key, const int len, uint32_t seed) {
 #define	ROTL32(x, r) ((x << r) | (x >> (32 - r)))
 #define FMIX32(h) h^=h>>16; h*=0x85ebca6b; h^=h>>13; h*=0xc2b2ae35; h^=h>>16;
     const uint8_t * data = (const uint8_t*)key;
@@ -594,10 +594,7 @@ static void MM86128(const void *key, const int len, uint32_t seed, void *out) {
     FMIX32(h1); FMIX32(h2); FMIX32(h3); FMIX32(h4);
     h1 += h2; h1 += h3; h1 += h4;
     h2 += h1; h3 += h1; h4 += h1;
-    ((uint32_t*)out)[0] = h1;
-    ((uint32_t*)out)[1] = h2;
-    ((uint32_t*)out)[2] = h3;
-    ((uint32_t*)out)[3] = h4;
+    return (((uint64_t)h2)<<32)|h1;
 }
 
 // hashmap_sip returns a hash value for `data` using SipHash-2-4.
@@ -612,9 +609,7 @@ uint64_t hashmap_murmur(const void *data, size_t len,
                         uint64_t seed0, uint64_t seed1)
 {
     (void)seed1;
-    char out[16];
-    MM86128(data, len, seed0, &out);
-    return *(uint64_t*)out;
+    return MM86128(data, len, seed0);
 }
 
 //==============================================================================
