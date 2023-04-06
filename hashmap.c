@@ -13,9 +13,6 @@ static void *(*_malloc)(size_t) = NULL;
 static void *(*_realloc)(void *, size_t) = NULL;
 static void (*_free)(void *) = NULL;
 
-// hashmap_set_allocator allows for configuring a custom allocator for
-// all hashmap library operations. This function, if needed, should be called
-// only once at startup and a prior to calling hashmap_new().
 void hashmap_set_allocator(void *(*malloc)(size_t), void (*free)(void*)) 
 {
     _malloc = malloc;
@@ -135,23 +132,6 @@ struct hashmap *hashmap_new_with_allocator(
 }
 
 
-// hashmap_new returns a new hash map. 
-// Param `elsize` is the size of each element in the tree. Every element that
-// is inserted, deleted, or retrieved will be this size.
-// Param `cap` is the default lower capacity of the hashmap. Setting this to
-// zero will default to 16.
-// Params `seed0` and `seed1` are optional seed values that are passed to the 
-// following `hash` function. These can be any value you wish but it's often 
-// best to use randomly generated values.
-// Param `hash` is a function that generates a hash value for an item. It's
-// important that you provide a good hash function, otherwise it will perform
-// poorly or be vulnerable to Denial-of-service attacks. This implementation
-// comes with two helper functions `hashmap_sip()` and `hashmap_murmur()`.
-// Param `compare` is a function that compares items in the tree. See the 
-// qsort stdlib function for an example of how this function works.
-// The hashmap must be freed with hashmap_free(). 
-// Param `elfree` is a function that frees a specific item. This should be NULL
-// unless you're storing some kind of reference data in the hash.
 struct hashmap *hashmap_new(size_t elsize, size_t cap, 
                             uint64_t seed0, uint64_t seed1,
                             uint64_t (*hash)(const void *item, 
@@ -179,12 +159,6 @@ static void free_elements(struct hashmap *map) {
 }
 
 
-// hashmap_clear quickly clears the map. 
-// Every item is called with the element-freeing function given in hashmap_new,
-// if present, to free any data referenced in the elements of the hashmap.
-// When the update_cap is provided, the map's capacity will be updated to match
-// the currently number of allocated buckets. This is an optimization to ensure
-// that this operation does not perform any allocations.
 void hashmap_clear(struct hashmap *map, bool update_cap) {
     map->count = 0;
     free_elements(map);
@@ -245,10 +219,6 @@ static bool resize(struct hashmap *map, size_t new_cap) {
     return true;
 }
 
-// hashmap_set inserts or replaces an item in the hash map. If an item is
-// replaced then it is returned otherwise NULL is returned. This operation
-// may allocate memory. If the system is unable to allocate additional
-// memory then NULL is returned and hashmap_oom() returns true.
 void *hashmap_set(struct hashmap *map, const void *item) {
     if (!item) {
         panic("item is null");
@@ -293,8 +263,6 @@ void *hashmap_set(struct hashmap *map, const void *item) {
 	}
 }
 
-// hashmap_get returns the item based on the provided key. If the item is not
-// found then NULL is returned.
 void *hashmap_get(struct hashmap *map, const void *key) {
     if (!key) {
         panic("key is null");
@@ -315,9 +283,6 @@ void *hashmap_get(struct hashmap *map, const void *key) {
 	}
 }
 
-// hashmap_probe returns the item in the bucket at position or NULL if an item
-// is not set for that bucket. The position is 'moduloed' by the number of 
-// buckets in the hashmap.
 void *hashmap_probe(struct hashmap *map, uint64_t position) {
     size_t i = position & map->mask;
     struct bucket *bucket = bucket_at(map, i);
@@ -328,8 +293,6 @@ void *hashmap_probe(struct hashmap *map, uint64_t position) {
 }
 
 
-// hashmap_delete removes an item from the hash map and returns it. If the
-// item is not found then NULL is returned.
 void *hashmap_delete(struct hashmap *map, void *key) {
     if (!key) {
         panic("key is null");
@@ -371,7 +334,6 @@ void *hashmap_delete(struct hashmap *map, void *key) {
 	}
 }
 
-// hashmap_count returns the number of items in the hash map.
 size_t hashmap_count(struct hashmap *map) {
     return map->count;
 }
@@ -597,14 +559,12 @@ static uint64_t MM86128(const void *key, const int len, uint32_t seed) {
     return (((uint64_t)h2)<<32)|h1;
 }
 
-// hashmap_sip returns a hash value for `data` using SipHash-2-4.
 uint64_t hashmap_sip(const void *data, size_t len, 
                      uint64_t seed0, uint64_t seed1)
 {
     return SIP64((uint8_t*)data, len, seed0, seed1);
 }
 
-// hashmap_murmur returns a hash value for `data` using Murmur3_86_128.
 uint64_t hashmap_murmur(const void *data, size_t len, 
                         uint64_t seed0, uint64_t seed1)
 {
