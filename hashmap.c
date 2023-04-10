@@ -245,6 +245,54 @@ static bool resize(struct hashmap *map, size_t new_cap) {
     return true;
 }
 
+// hashmap_set_by_hash inserts or replaces an item in the hash map. If an item is
+// replaced then it is returned otherwise NULL is returned. This operation
+// may allocate memory. If the system is unable to allocate additional
+// memory then NULL is returned and hashmap_oom() returns true.
+void *hashmap_set_by_hash(struct hashmap *map, const void *key, const void *item) {
+    if (!item) {
+        panic("item is null");
+    }
+    map->oom = false;
+    if (map->count == map->growat) {
+        if (!resize(map, map->nbuckets*2)) {
+            map->oom = true;
+            return NULL;
+        }
+    }
+
+    
+    struct bucket *entry = map->edata;
+    entry->hash = (uint64_t) key;
+    entry->dib = 1;
+    memcpy(bucket_item(entry), item, map->elsize);
+    
+    size_t i = entry->hash & map->mask;
+	for (;;) {
+        struct bucket *bucket = bucket_at(map, i);
+        if (bucket->dib == 0) {
+            memcpy(bucket, entry, map->bucketsz);
+            map->count++;
+			return NULL;
+		}
+        if (entry->hash == bucket->hash && 
+            map->compare(bucket_item(entry), bucket_item(bucket), 
+                         map->udata) == 0)
+        {
+            memcpy(map->spare, bucket_item(bucket), map->elsize);
+            memcpy(bucket_item(bucket), bucket_item(entry), map->elsize);
+            return map->spare;
+		}
+        if (bucket->dib < entry->dib) {
+            memcpy(map->spare, bucket, map->bucketsz);
+            memcpy(bucket, entry, map->bucketsz);
+            memcpy(entry, map->spare, map->bucketsz);
+		}
+		i = (i + 1) & map->mask;
+        entry->dib += 1;
+	}
+}
+
 // hashmap_set inserts or replaces an item in the hash map. If an item is
 // replaced then it is returned otherwise NULL is returned. This operation
 // may allocate memory. If the system is unable to allocate additional
@@ -300,6 +348,28 @@ void *hashmap_get(struct hashmap *map, const void *key) {
         panic("key is null");
     }
     uint64_t hash = get_hash(map, key);
+	size_t i = hash & map->mask;
+	for (;;) {
+        struct bucket *bucket = bucket_at(map, i);
+		if (!bucket->dib) {
+			return NULL;
+		}
+		if (bucket->hash == hash && 
+            map->compare(key, bucket_item(bucket), map->udata) == 0)
+        {
+            return bucket_item(bucket);
+		}
+		i = (i + 1) & map->mask;
+	}
+}
+
+// hashmap_get_by_hash returns the item based on the provided key. If the item is not
+// found then NULL is returned.
+void *hashmap_get_by_hash(struct hashmap *map, const void *key) {
+    if (!key) {
+        panic("key is null");
+    }
+    uint64_t hash = (uint64_t) key;
 	size_t i = hash & map->mask;
 	for (;;) {
         struct bucket *bucket = bucket_at(map, i);
