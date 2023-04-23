@@ -287,6 +287,7 @@ void *hashmap_set(struct hashmap *map, const void *item) {
             memcpy(map->spare, bucket, map->bucketsz);
             memcpy(bucket, entry, map->bucketsz);
             memcpy(entry, map->spare, map->bucketsz);
+            return NULL;
 		}
 		i = (i + 1) & map->mask;
         entry->dib += 1;
