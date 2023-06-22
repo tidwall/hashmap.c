@@ -4,11 +4,11 @@
 
 ## Features
 
-- [Open addressing](https://en.wikipedia.org/wiki/Hash_table#Open_addressing) using [Robin Hood](https://en.wikipedia.org/wiki/Hash_table#Robin_Hood_hashing) hashing
-- Generic interface with support for variable sized items.
+- [Open addressing](https://en.wikipedia.org/wiki/Hash_table#Open_addressing) using [Robin Hood](https://en.wikipedia.org/wiki/Hash_table#Robin_Hood_hashing) hashing.
+- Generic interface with support for variable-sized items.
 - Built-in [SipHash](https://en.wikipedia.org/wiki/SipHash) or [MurmurHash3](https://en.wikipedia.org/wiki/MurmurHash) and allows for alternative algorithms.
-- ANSI C (C99)
-- Supports custom allocators
+- Supports C99 and up.
+- Supports custom allocators.
 - Pretty darn good performance. 🚀
 
 ## Example
