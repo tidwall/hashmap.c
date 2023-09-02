@@ -199,8 +199,8 @@ void hashmap_clear(struct hashmap *map, bool update_cap) {
     }
     memset(map->buckets, 0, map->bucketsz*map->nbuckets);
     map->mask = map->nbuckets-1;
-    map->growat = map->nbuckets*0.75;
-    map->shrinkat = map->nbuckets*0.10;
+    map->growat = map->nbuckets*GROW_AT;
+    map->shrinkat = map->nbuckets*SHRINK_AT;
 }
 
 static bool resize0(struct hashmap *map, size_t new_cap) {
