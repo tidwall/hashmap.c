@@ -26,7 +26,8 @@ void hashmap_set_allocator(void *(*malloc)(size_t), void (*free)(void*)) {
 
 struct bucket {
     uint64_t hash:48;
-    uint64_t dib:16;
+    uint64_t tomb:1;
+    uint64_t dib:15;
 };
 
 // hashmap is an open addressed hash map using robinhood hashing.
@@ -45,6 +46,7 @@ struct hashmap {
     size_t bucketsz;
     size_t nbuckets;
     size_t count;
+    size_t tombs;
     size_t mask;
     size_t growat;
     size_t shrinkat;
@@ -210,7 +212,7 @@ static bool resize0(struct hashmap *map, size_t new_cap) {
     if (!map2) return false;
     for (size_t i = 0; i < map->nbuckets; i++) {
         struct bucket *entry = bucket_at(map, i);
-        if (!entry->dib) {
+        if (entry->tomb || !entry->dib) {
             continue;
         }
         entry->dib = 1;
@@ -261,6 +263,7 @@ const void *hashmap_set_with_hash(struct hashmap *map, const void *item,
 
     struct bucket *entry = map->edata;
     entry->hash = hash;
+    entry->tomb = 0;
     entry->dib = 1;
     void *eitem = bucket_item(entry);
     memcpy(eitem, item, map->elsize);
@@ -275,9 +278,10 @@ const void *hashmap_set_with_hash(struct hashmap *map, const void *item,
             return NULL;
         }
         bitem = bucket_item(bucket);
-        if (entry->hash == bucket->hash && (!map->compare ||
-            map->compare(eitem, bitem, map->udata) == 0))
-        {
+        if (!bucket->tomb
+            && entry->hash == bucket->hash
+            && (!map->compare
+                || map->compare(eitem, bitem, map->udata) == 0)) {
             memcpy(map->spare, bitem, map->elsize);
             memcpy(bitem, eitem, map->elsize);
             return map->spare;
@@ -312,7 +316,7 @@ const void *hashmap_get_with_hash(struct hashmap *map, const void *key,
     while(1) {
         struct bucket *bucket = bucket_at(map, i);
         if (!bucket->dib) return NULL;
-        if (bucket->hash == hash) {
+        if (!bucket->tomb && bucket->hash == hash) {
             void *bitem = bucket_item(bucket);
             if (!map->compare || map->compare(key, bitem, map->udata) == 0) {
                 return bitem;
@@ -334,10 +338,88 @@ const void *hashmap_get(struct hashmap *map, const void *key) {
 const void *hashmap_probe(struct hashmap *map, uint64_t position) {
     size_t i = position & map->mask;
     struct bucket *bucket = bucket_at(map, i);
-    if (!bucket->dib) {
+    if (bucket->tomb || !bucket->dib) {
         return NULL;
     }
     return bucket_item(bucket);
+}
+
+// hashmap_unset_with_hash works like hashmap_unset but you provide your
+// own hash. The 'hash' callback provided to the hashmap_new function
+// will not be called.
+const void *hashmap_unset_with_hash(struct hashmap *map, const void *key,
+    uint64_t hash)
+{
+    hash = clip_hash(hash);
+    map->oom = false;
+    size_t i = hash & map->mask;
+    while(1) {
+        struct bucket *bucket = bucket_at(map, i);
+        if (!bucket->dib) {
+            return NULL;
+        }
+        void *bitem = bucket_item(bucket);
+        if (!bucket->tomb
+            && bucket->hash == hash
+            && (!map->compare
+                || map->compare(key, bitem, map->udata) == 0)) {
+            memcpy(map->spare, bitem, map->elsize);
+            bucket->tomb = 1;
+            map->tombs++;
+            return map->spare;
+        }
+        i = (i + 1) & map->mask;
+    }
+}
+
+// hashmap_unset removes an item from the hash map and returns it. If the
+// item is not found then NULL is returned.
+// This differs from hashmap_delete insofar that it makes no adjustments
+// of the bucket list, but rather make the item a tombstone.  A tombstoned
+// item is still the same item, but with a mark that makes in inaccessible.
+// It's safe for the caller to do anything with the returned item, as its
+// contents will not be used any more, not even for comparison.
+// This function is mainly suitable to use with functions like hashmap_scan
+// or hashmap_iter, and should be completed with a call of hashmap_vacuum
+// after the iteration is done, to effectively delete all the tombstones.
+// This can be seen as a delayed delete.
+const void *hashmap_unset(struct hashmap *map, const void *key) {
+    return hashmap_unset_with_hash(map, key, get_hash(map, key));
+}
+
+// Helper function used both by hashmap_delete_with_hash and hashmap_vacuum
+static void *delete_at(struct hashmap *map, uint64_t position)
+{
+    struct bucket *bucket = bucket_at(map, position);
+    if (!bucket->dib) {
+        return NULL;
+    }
+
+    void *bitem = bucket_item(bucket);
+    memcpy(map->spare, bitem, map->elsize);
+
+    // bitem has no more use, except for being the return value
+    if (bucket->tomb)
+        bitem = NULL;
+
+    while(1) {
+        struct bucket *prev = bucket;
+        position = (position + 1) & map->mask;
+        bucket = bucket_at(map, position);
+        if (bucket->dib <= 1) {
+            prev->tomb = 0;
+            prev->dib = 0;
+            break;
+        }
+        memcpy(prev, bucket, map->bucketsz);
+        if (! --prev->dib)
+            prev->tomb = 0;
+    }
+    map->count--;
+
+    if (bitem == NULL)
+        map->tombs--;
+    return bitem;
 }
 
 // hashmap_delete_with_hash works like hashmap_delete but you provide your
@@ -355,23 +437,14 @@ const void *hashmap_delete_with_hash(struct hashmap *map, const void *key,
             return NULL;
         }
         void *bitem = bucket_item(bucket);
-        if (bucket->hash == hash && (!map->compare ||
-            map->compare(key, bitem, map->udata) == 0))
-        {
-            memcpy(map->spare, bitem, map->elsize);
-            bucket->dib = 0;
-            while(1) {
-                struct bucket *prev = bucket;
-                i = (i + 1) & map->mask;
-                bucket = bucket_at(map, i);
-                if (bucket->dib <= 1) {
-                    prev->dib = 0;
-                    break;
-                }
-                memcpy(prev, bucket, map->bucketsz);
-                prev->dib--;
-            }
-            map->count--;
+        if (!bucket->tomb
+            && bucket->hash == hash
+            && (!map->compare
+                || map->compare(key, bitem, map->udata) == 0)) {
+            // |i| is the position of a filled bucket, so delete_at will
+            // save it in |map->spared|.  No need to check the returned
+            // value here.
+            delete_at(map, i);
             if (map->nbuckets > map->cap && map->count <= map->shrinkat) {
                 // Ignore the return value. It's ok for the resize operation to
                 // fail to allocate enough memory because a shrink operation
@@ -390,9 +463,34 @@ const void *hashmap_delete(struct hashmap *map, const void *key) {
     return hashmap_delete_with_hash(map, key, get_hash(map, key));
 }
 
+// hashmap_vacuum Vacuums all remaining tombstones (buckets with tomb == 1)
+void hashmap_vacuum(struct hashmap *map)
+{
+    size_t i = 0;
+    do {
+        struct bucket *bucket = bucket_at(map, i);
+
+        if (bucket->tomb && bucket->dib)
+            delete_at(map, i);
+        // Since delete_at does backward shifting, there are new buckets
+        // at position |i|, including a possible tombstone.  Therefore,
+        // the position can only be updated when the current bucket was
+        // deemed to be live (not a tombstone) or completely dead (not
+        // a tombstone, and with bucket->dib == 0).
+        if (!bucket->tomb)
+            i++;
+    } while(i < map->nbuckets);
+    if (map->nbuckets > map->cap && map->count <= map->shrinkat) {
+        // Ignore the return value. It's ok for the resize operation to
+        // fail to allocate enough memory because a shrink operation
+        // does not change the integrity of the data.
+        resize(map, map->nbuckets/2);
+    }
+}
+
 // hashmap_count returns the number of items in the hash map.
 size_t hashmap_count(struct hashmap *map) {
-    return map->count;
+    return map->count - map->tombs;
 }
 
 // hashmap_free frees the hash map
@@ -419,7 +517,9 @@ bool hashmap_scan(struct hashmap *map,
 {
     for (size_t i = 0; i < map->nbuckets; i++) {
         struct bucket *bucket = bucket_at(map, i);
-        if (bucket->dib && !iter(bucket_item(bucket), udata)) {
+        if (!bucket->tomb
+            && bucket->dib
+            && !iter(bucket_item(bucket), udata)) {
             return false;
         }
     }
@@ -450,7 +550,7 @@ bool hashmap_iter(struct hashmap *map, size_t *i, void **item) {
         if (*i >= map->nbuckets) return false;
         bucket = bucket_at(map, *i);
         (*i)++;
-    } while (!bucket->dib);
+    } while (!bucket->tomb && !bucket->dib);
     *item = bucket_item(bucket);
     return true;
 }
@@ -984,6 +1084,39 @@ static void all(void) {
     prev_cap = map->cap;
     hashmap_clear(map, false);
     assert(prev_cap == map->cap);
+
+
+    for (int i = 0; i < N; i++) {
+        while (true) {
+            assert(!hashmap_set(map, &vals[i]));
+            if (!hashmap_oom(map)) {
+                break;
+            }
+        }
+    }
+
+    // Test unset in a hashmap_iter loop
+    size_t prev_count = map->count;
+    assert(map->tombs == 0);
+    for (iter = 0; hashmap_iter(map, &iter, &iter_val);)
+        // Unset the odd ones
+        if (*(int *)iter_val % 2)
+            assert(hashmap_unset(map, iter_val));
+    // about half the buckets should be tombs
+    fprintf(stderr, "map->count = %zu, map->tombs = %zu\n",
+            map->count, map->tombs);
+    assert(map->tombs != 0);
+    assert(map->count == N);
+    if (N % 2)
+        assert(hashmap_count(map) + 1 == map->tombs);
+    else
+        assert(hashmap_count(map) == map->tombs);
+    assert(map->count == prev_count);
+    prev_count = map->count;
+    hashmap_vacuum(map);
+    assert(map->tombs == 0);
+    assert(map->count == prev_count / 2);
+
 
     hashmap_free(map);
 

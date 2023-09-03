@@ -112,6 +112,7 @@ hashmap_count    # returns the number of items in the hash map
 hashmap_set      # insert or replace an existing item and return the previous
 hashmap_get      # get an existing item
 hashmap_delete   # delete and return an item
+hashmap_unset    # make the item a tombstone and return it
 hashmap_clear    # clear the hash map
 ```
 
@@ -120,6 +121,12 @@ hashmap_clear    # clear the hash map
 ```sh
 hashmap_iter     # loop based iteration over all items in hash map 
 hashmap_scan     # callback based iteration over all items in hash map
+```
+
+### Maintenance
+
+```sh
+hashmap_vacuum   # vacuum tombstones
 ```
 
 ### Hash helpers
