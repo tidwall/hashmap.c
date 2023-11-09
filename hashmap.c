@@ -9,8 +9,12 @@
 #include <stddef.h>
 #include "hashmap.h"
 
-#define GROW_AT   0.60
-#define SHRINK_AT 0.10
+#define GROW_AT   0.60 /* 60% */
+#define SHRINK_AT 0.10 /* 10% */
+
+#ifndef HASHMAP_LOAD_FACTOR
+#define HASHMAP_LOAD_FACTOR GROW_AT
+#endif
 
 static void *(*__malloc)(size_t) = NULL;
 static void *(*__realloc)(void *, size_t) = NULL;
@@ -48,6 +52,7 @@ struct hashmap {
     size_t mask;
     size_t growat;
     size_t shrinkat;
+    uint8_t loadfactor;
     uint8_t growpower;
     bool oom;
     void *buckets;
@@ -57,6 +62,20 @@ struct hashmap {
 
 void hashmap_set_grow_by_power(struct hashmap *map, size_t power) {
     map->growpower = power < 1 ? 1 : power > 16 ? 16 : power;
+}
+
+static double clamp_load_factor(double factor, double default_factor) {
+    // Check for NaN and clamp between 50% and 90%
+    return factor != factor ? default_factor : 
+           factor < 0.50 ? 0.50 : 
+           factor > 0.95 ? 0.95 : 
+           factor;
+}
+
+void hashmap_set_load_factor(struct hashmap *map, double factor) {
+    factor = clamp_load_factor(factor, map->loadfactor / 100.0);
+    map->loadfactor = factor * 100;
+    map->growat = map->nbuckets * (map->loadfactor / 100.0);
 }
 
 static struct bucket *bucket_at0(void *buckets, size_t bucketsz, size_t i) {
@@ -78,6 +97,7 @@ static uint64_t clip_hash(uint64_t hash) {
 static uint64_t get_hash(struct hashmap *map, const void *key) {
     return clip_hash(map->hash(key, map->seed0, map->seed1));
 }
+
 
 // hashmap_new_with_allocator returns a new hash map using a custom allocator.
 // See hashmap_new for more information information
@@ -101,7 +121,6 @@ struct hashmap *hashmap_new_with_allocator(void *(*_malloc)(size_t),
         }
         cap = ncap;
     }
-    // printf("%d\n", (int)cap);
     size_t bucketsz = sizeof(struct bucket) + elsize;
     while (bucketsz & (sizeof(uintptr_t)-1)) {
         bucketsz++;
@@ -133,8 +152,9 @@ struct hashmap *hashmap_new_with_allocator(void *(*_malloc)(size_t),
     }
     memset(map->buckets, 0, map->bucketsz*map->nbuckets);
     map->growpower = 1;
-    map->growat = map->nbuckets*GROW_AT;
-    map->shrinkat = map->nbuckets*SHRINK_AT;
+    map->loadfactor = clamp_load_factor(HASHMAP_LOAD_FACTOR, GROW_AT) * 100;
+    map->growat = map->nbuckets * (map->loadfactor / 100.0);
+    map->shrinkat = map->nbuckets * SHRINK_AT;
     map->malloc = _malloc;
     map->realloc = _realloc;
     map->free = _free;
@@ -199,8 +219,8 @@ void hashmap_clear(struct hashmap *map, bool update_cap) {
     }
     memset(map->buckets, 0, map->bucketsz*map->nbuckets);
     map->mask = map->nbuckets-1;
-    map->growat = map->nbuckets*0.75;
-    map->shrinkat = map->nbuckets*0.10;
+    map->growat = map->nbuckets * (map->loadfactor / 100.0) ;
+    map->shrinkat = map->nbuckets * SHRINK_AT;
 }
 
 static bool resize0(struct hashmap *map, size_t new_cap) {
@@ -252,7 +272,7 @@ const void *hashmap_set_with_hash(struct hashmap *map, const void *item,
 {
     hash = clip_hash(hash);
     map->oom = false;
-    if (map->count == map->growat) {
+    if (map->count >= map->growat) {
         if (!resize(map, map->nbuckets*(1<<map->growpower))) {
             map->oom = true;
             return NULL;
