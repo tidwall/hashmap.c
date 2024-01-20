@@ -6,7 +6,7 @@
 
 - [Open addressing](https://en.wikipedia.org/wiki/Hash_table#Open_addressing) using [Robin Hood](https://en.wikipedia.org/wiki/Hash_table#Robin_Hood_hashing) hashing.
 - Generic interface with support for variable-sized items.
-- Built-in [SipHash](https://en.wikipedia.org/wiki/SipHash) or [MurmurHash3](https://en.wikipedia.org/wiki/MurmurHash) and allows for alternative algorithms.
+- Built-in [SipHash](https://en.wikipedia.org/wiki/SipHash), [MurmurHash3](https://en.wikipedia.org/wiki/MurmurHash), [xxHash](https://github.com/Cyan4973/xxHash) and allows for alternative algorithms.
 - Supports C99 and up.
 - Supports custom allocators.
 - Pretty darn good performance. 🚀
