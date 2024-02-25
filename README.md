@@ -129,6 +129,47 @@ hashmap_sip      # returns hash value for data using SipHash-2-4
 hashmap_murmur   # returns hash value for data using MurmurHash3
 ```
 
+## API Notes
+
+An "item" is a structure of your design that contains a key and a value.
+You load your structure with key and value and you set it in the table,
+which copies the contents of your structure into a bucket in the table.
+When you get an item out of the table, you load your structure with
+the key data and call "hashmap_get()". This looks up the key and returns
+a pointer to the item stored in the bucket. The passed-in item is
+not modified.
+
+Since the hashmap code doesn't know anything about your item structure,
+you must provide "compare" and "hash" functions which access the structure's
+key properly. If you want to use the "hashmap_scan()" function, you must also
+provide an "iter" function. For your hash function, you are welcome to call
+one of the supplied hash functions, passing the key in your structure.
+
+Note that if your element structure contains pointers, those pointer
+values will be copied into the buckets. I.e. it is a "shallow" copy
+of the item, not a "deep" copy. Therefore, anything your entry points
+to must be maintained for the lifetime of the item in the table.
+
+The functions "hashmap_get()", "hashmap_set()", and "hashmap_delete()"
+all return a pointer to an item if found.
+In all cases, the pointer is not guaranteed to continue to point
+to that same item after subsequent calls to the hashmap.
+I.e. the hashmap can be rearranged by a subsequent call, which can render
+previously-returned pointers invalid, possibly even pointing into freed
+heap space. DO NOT RETAIN POINTERS RETURNED BY HASHMAP CALLS!  It is
+common to copy the contents of the item into your storage immediately
+following a call that returns an item pointer.
+
+NOT THREAD SAFE. If you are using hashmap with multiple threads, you
+must provide locking to prevent concurrent calls. Note that it is NOT
+sufficient to add the locks to the hashmap code itself. Remember that
+hashmap calls return pointers to internal structures, which can become
+invalid after subsequent calls to hashmap. If you just add a lock
+inside the hashmap functions, by the time a pointer is returned to
+the caller, that pointer may have already been rendered invalid.
+You should lock before the call, make the call, copy out the result,
+and unlock.
+
 ## Testing and benchmarks
 
 ```sh

@@ -9,6 +9,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#if defined(__cplusplus)
+extern "C" {
+#endif  // __cplusplus
+
 struct hashmap;
 
 struct hashmap *hashmap_new(size_t elsize, size_t cap, uint64_t seed0, 
@@ -51,4 +55,8 @@ void hashmap_set_load_factor(struct hashmap *map, double load_factor);
 // DEPRECATED: use `hashmap_new_with_allocator`
 void hashmap_set_allocator(void *(*malloc)(size_t), void (*free)(void*));
 
-#endif
+#if defined(__cplusplus)
+}
+#endif  // __cplusplus
+
+#endif  // HASHMAP_H
