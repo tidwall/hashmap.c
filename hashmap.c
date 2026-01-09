@@ -295,7 +295,7 @@ const void *hashmap_set_with_hash(struct hashmap *map, const void *item,
             return NULL;
         }
         bitem = bucket_item(bucket);
-        if (entry->hash == bucket->hash && (!map->compare ||
+        if (entry->dib == bucket->dib && (!map->compare ||
             map->compare(eitem, bitem, map->udata) == 0))
         {
             memcpy(map->spare, bitem, map->elsize);
