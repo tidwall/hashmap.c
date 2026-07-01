@@ -475,6 +475,23 @@ bool hashmap_iter(struct hashmap *map, size_t *i, void **item) {
     return true;
 }
 
+// hashmap_nbuckets returns the total number of buckets.
+size_t hashmap_nbuckets(const struct hashmap *map) {
+    return map->nbuckets;
+}
+
+// hashmap_bucket_item returns the item at a specific bucket.
+// Returns NULL if the bucket is empty.
+const void *hashmap_bucket_item(const struct hashmap *map, size_t i) {
+    if (i > map->nbuckets-1) {
+        return 0;
+    }
+    struct bucket *bucket = bucket_at(map, i);
+    if (!bucket->dib) {
+        return 0;
+    }
+    return bucket_item(bucket);
+}
 
 //-----------------------------------------------------------------------------
 // SipHash reference C implementation
@@ -922,6 +939,14 @@ static void all(void) {
             v = hashmap_get(map, &vals[j]);
             assert(v && *v == vals[j]);
         }
+        assert(hashmap_nbuckets(map) == map->nbuckets);
+        int bcount = 0;
+        for (int j = 0; j < map->nbuckets; j++) {
+            const void *item = hashmap_bucket_item(map, j);
+            bcount += item != 0;
+        }
+        assert(bcount == map->count);
+
         while (true) {
             v = hashmap_set(map, &vals[i]);
             if (!v) {
