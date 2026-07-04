@@ -776,6 +776,16 @@ static uint64_t xxh3(const void* data, size_t len, uint64_t seed) {
 uint64_t hashmap_sip(const void *data, size_t len, uint64_t seed0,
     uint64_t seed1)
 {
+    uint8_t buf[8] = {0};
+    // If the input buffer is smaller than 8 bytes, copy it into a zero-padded
+    // local buffer to avoid out-of-bounds reads
+    if (len < 8) {
+        memset(buf, 0, sizeof(buf));
+        memcpy(buf, data, len);
+        len = 8;
+        data = buf;
+    }
+
     return SIP64((uint8_t*)data, len, seed0, seed1);
 }
 
